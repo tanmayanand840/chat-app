@@ -13,6 +13,21 @@ pipeline {
         CLIENT_IMAGE = "${DOCKERHUB_USERNAME}/chat-client"
         SERVER_IMAGE = "${DOCKERHUB_USERNAME}/chat-server"
         IMAGE_TAG = 'latest'
+
+        // Replace these values with your EC2 deployment user and host.
+        DEPLOY_USER = 'ubuntu'
+        DEPLOY_HOST = 'YOUR_EC2_PUBLIC_IP'
+        DEPLOY_TARGET = "${DEPLOY_USER}@${DEPLOY_HOST}"
+
+        CLIENT_CONTAINER = 'chat-client'
+        SERVER_CONTAINER = 'chat-server'
+        DOCKER_NETWORK = 'chat-app-network'
+
+        CLIENT_PORT = '5173'
+        SERVER_PORT = '5000'
+
+        // Create this file on EC2 with backend secrets such as JWT, MongoDB, and Cloudinary values.
+        SERVER_ENV_FILE = '/opt/chat-app/server.env'
     }
 
     options {
@@ -92,6 +107,60 @@ pipeline {
                 '''
             }
         }
+
+        stage('Deploy Application') {
+            steps {
+                // SSH into the EC2 deployment server and replace old containers with the latest images.
+                sshagent(credentials: ['agent-ssh']) {
+                    sh '''
+                        set -e
+
+                        ssh -o StrictHostKeyChecking=no "$DEPLOY_TARGET" "
+                            set -e
+
+                            echo 'Creating Docker network if it does not exist...'
+                            docker network create $DOCKER_NETWORK || true
+
+                            echo 'Pulling latest Docker images...'
+                            docker pull $CLIENT_IMAGE:$IMAGE_TAG
+                            docker pull $SERVER_IMAGE:$IMAGE_TAG
+
+                            echo 'Stopping old containers if they are running...'
+                            docker stop $CLIENT_CONTAINER || true
+                            docker stop $SERVER_CONTAINER || true
+
+                            echo 'Removing old containers if they exist...'
+                            docker rm $CLIENT_CONTAINER || true
+                            docker rm $SERVER_CONTAINER || true
+
+                            echo 'Starting backend container...'
+                            docker run -d \\
+                              --name $SERVER_CONTAINER \\
+                              --restart unless-stopped \\
+                              --network $DOCKER_NETWORK \\
+                              --network-alias backend \\
+                              --env-file $SERVER_ENV_FILE \\
+                              -e NODE_ENV=production \\
+                              -e PORT=$SERVER_PORT \\
+                              -e CLIENT_URL=http://$DEPLOY_HOST:$CLIENT_PORT \\
+                              -p $SERVER_PORT:$SERVER_PORT \\
+                              $SERVER_IMAGE:$IMAGE_TAG
+
+                            echo 'Starting frontend container...'
+                            docker run -d \\
+                              --name $CLIENT_CONTAINER \\
+                              --restart unless-stopped \\
+                              --network $DOCKER_NETWORK \\
+                              -p $CLIENT_PORT:$CLIENT_PORT \\
+                              $CLIENT_IMAGE:$IMAGE_TAG
+
+                            echo 'Deployment completed successfully.'
+                            docker ps --filter name=$SERVER_CONTAINER --filter name=$CLIENT_CONTAINER
+                        "
+                    '''
+                }
+            }
+        }
     }
 
     post {
@@ -103,11 +172,11 @@ pipeline {
         }
 
         success {
-            echo 'CI pipeline completed successfully. Images were built and pushed to Docker Hub.'
+            echo 'CI/CD pipeline completed successfully. Images were built, pushed, and deployed.'
         }
 
         failure {
-            echo 'CI pipeline failed. Check the stage logs above for the exact error.'
+            echo 'CI/CD pipeline failed. Check the stage logs above for the exact error.'
         }
     }
 }
