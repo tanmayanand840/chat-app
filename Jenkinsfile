@@ -16,7 +16,7 @@ pipeline {
 
         // Replace these values with your EC2 deployment user and host.
         DEPLOY_USER = 'ubuntu'
-        DEPLOY_HOST = 'YOUR_EC2_PUBLIC_IP'
+        DEPLOY_HOST = '3.110.172.41'
         DEPLOY_TARGET = "${DEPLOY_USER}@${DEPLOY_HOST}"
 
         CLIENT_CONTAINER = 'chat-client'
@@ -159,6 +159,15 @@ pipeline {
                         "
                     '''
                 }
+            }
+        }
+
+        stage('Cleanup Docker') {
+            steps {
+                // Remove unused Docker images, containers, networks, and build cache from the Jenkins agent.
+                sh '''
+                    docker system prune -af || true
+                '''
             }
         }
     }
