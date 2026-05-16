@@ -255,12 +255,29 @@ The pipeline:
 4. Builds the backend Docker image
 5. Logs in to Docker Hub using Jenkins credentials
 6. Pushes both images to Docker Hub
+7. SSHs into the EC2 deployment server
+8. Starts MongoDB on EC2 if it is not already running
+9. Replaces the old frontend and backend containers with the latest images
 
 Images pushed:
 
 ```text
 tanmayanand24/chat-client:latest
 tanmayanand24/chat-server:latest
+```
+
+Containers deployed on EC2:
+
+```text
+mongodb
+chat-server
+chat-client
+```
+
+MongoDB data is persisted in this Docker volume on EC2:
+
+```text
+chat-app-mongodb-data
 ```
 
 ## Jenkins Prerequisites
@@ -270,13 +287,46 @@ Before running the pipeline, configure:
 - Jenkins agent with label `dev`
 - Docker installed on the Jenkins agent
 - Jenkins agent user allowed to run Docker without `sudo`
+- SSH access from Jenkins to the EC2 deployment server
 - Docker Hub credential in Jenkins:
   - Credential type: Username with password
   - Credential ID: `dockerhub`
   - Username: Docker Hub username
   - Password: Docker Hub access token or password
+- SSH credential in Jenkins:
+  - Credential ID: `agent-ssh`
+  - Private key for the EC2 deployment user
 - GitHub repository URL inside `Jenkinsfile`
 - Docker Hub username inside `Jenkinsfile`
+- EC2 public IP inside `Jenkinsfile`
+
+Create this backend environment file on EC2:
+
+```bash
+sudo mkdir -p /opt/chat-app
+sudo nano /opt/chat-app/server.env
+```
+
+Example:
+
+```env
+JWT_SECRET=your_jwt_secret
+CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
+CLOUDINARY_API_KEY=your_cloudinary_api_key
+CLOUDINARY_API_SECRET=your_cloudinary_api_secret
+```
+
+The Jenkins deployment command sets this MongoDB URI automatically for the backend container:
+
+```text
+MONGODB_URI=mongodb://mongodb:27017/chat-app
+```
+
+The deployment stage also waits for MongoDB to respond before starting the backend. This prevents Mongoose errors such as:
+
+```text
+Operation `users.findOne()` buffering timed out after 10000ms
+```
 
 ## How The Jenkins Pipeline Works
 
@@ -302,6 +352,8 @@ docker build -t tanmayanand24/chat-server:latest ./server
 docker push tanmayanand24/chat-client:latest
 docker push tanmayanand24/chat-server:latest
 ```
+
+After the push, the deployment stage connects to EC2 with SSH, pulls the latest images, starts MongoDB if needed, and recreates the app containers.
 
 ## Common Docker Issues
 
@@ -336,6 +388,13 @@ Do not use:
 
 ```text
 mongodb://localhost:27017/chat-app
+```
+
+On EC2, make sure the `mongodb` container is running:
+
+```bash
+docker ps
+docker logs mongodb
 ```
 
 ### Socket.IO connection fails

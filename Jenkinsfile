@@ -21,7 +21,10 @@ pipeline {
 
         CLIENT_CONTAINER = 'chat-client'
         SERVER_CONTAINER = 'chat-server'
+        MONGO_CONTAINER = 'mongodb'
         DOCKER_NETWORK = 'chat-app-network'
+        MONGO_IMAGE = 'mongo:7'
+        MONGO_VOLUME = 'chat-app-mongodb-data'
 
         CLIENT_PORT = '5173'
         SERVER_PORT = '5000'
@@ -121,9 +124,46 @@ pipeline {
                             echo 'Creating Docker network if it does not exist...'
                             docker network create $DOCKER_NETWORK || true
 
+                            echo 'Checking backend environment file...'
+                            test -f $SERVER_ENV_FILE
+
                             echo 'Pulling latest Docker images...'
                             docker pull $CLIENT_IMAGE:$IMAGE_TAG
                             docker pull $SERVER_IMAGE:$IMAGE_TAG
+                            docker pull $MONGO_IMAGE
+
+                            echo 'Creating MongoDB volume if it does not exist...'
+                            docker volume create $MONGO_VOLUME
+
+                            echo 'Starting MongoDB container if needed...'
+                            if docker ps -a --format '{{.Names}}' | grep -Eq '^$MONGO_CONTAINER$'; then
+                              docker start $MONGO_CONTAINER || true
+                              docker network connect $DOCKER_NETWORK $MONGO_CONTAINER || true
+                            else
+                              docker run -d \\
+                                --name $MONGO_CONTAINER \\
+                                --restart unless-stopped \\
+                                --network $DOCKER_NETWORK \\
+                                --network-alias mongodb \\
+                                -v $MONGO_VOLUME:/data/db \\
+                                $MONGO_IMAGE
+                            fi
+
+                            echo 'Waiting for MongoDB to become ready...'
+                            for i in 1 2 3 4 5 6 7 8 9 10; do
+                              if docker exec $MONGO_CONTAINER mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' | grep -q 1; then
+                                echo 'MongoDB is ready.'
+                                break
+                              fi
+
+                              if [ \"\$i\" = '10' ]; then
+                                echo 'MongoDB did not become ready in time.'
+                                docker logs $MONGO_CONTAINER --tail 50
+                                exit 1
+                              fi
+
+                              sleep 3
+                            done
 
                             echo 'Stopping old containers if they are running...'
                             docker stop $CLIENT_CONTAINER || true
@@ -142,6 +182,7 @@ pipeline {
                               --env-file $SERVER_ENV_FILE \\
                               -e NODE_ENV=production \\
                               -e PORT=$SERVER_PORT \\
+                              -e MONGODB_URI=mongodb://mongodb:27017/chat-app \\
                               -e CLIENT_URL=http://$DEPLOY_HOST:$CLIENT_PORT \\
                               -p $SERVER_PORT:$SERVER_PORT \\
                               $SERVER_IMAGE:$IMAGE_TAG
@@ -155,7 +196,10 @@ pipeline {
                               $CLIENT_IMAGE:$IMAGE_TAG
 
                             echo 'Deployment completed successfully.'
-                            docker ps --filter name=$SERVER_CONTAINER --filter name=$CLIENT_CONTAINER
+                            docker ps \\
+                              --filter name=$MONGO_CONTAINER \\
+                              --filter name=$SERVER_CONTAINER \\
+                              --filter name=$CLIENT_CONTAINER
                         "
                     '''
                 }
