@@ -1,48 +1,47 @@
-# Real-Time Chat Application
+# MERN Real-Time Chat App
 
-A full-stack MERN real-time chat application with JWT authentication, Socket.IO messaging, MongoDB persistence, and Cloudinary image upload support.
+A production-style MERN chat application with real-time messaging, JWT authentication, image uploads, Docker containerization, and Jenkins CI/CD deployment to AWS EC2.
+
+## Overview
+
+This project is a full-stack chat application built with:
+
+- React + Vite frontend
+- Node.js + Express backend
+- MongoDB database
+- Socket.IO for real-time communication
+- JWT for authentication
+- Cloudinary for image upload support
+- Docker and Docker Compose for containerization
+- Jenkins pipeline for CI/CD automation
+
+The application can run locally with Docker Compose and can also be deployed automatically to an AWS EC2 instance using Jenkins.
 
 ## Features
 
-- Real-time one-to-one messaging with Socket.IO
-- User signup, login, and JWT-based authentication
+- User signup and login
+- JWT-protected API routes
+- Real-time chat with Socket.IO
 - Online user status
-- Image upload support using Cloudinary
-- Persistent chat history with MongoDB
-- React + Vite frontend
-- Node.js + Express backend
-- Dockerized frontend, backend, and MongoDB services
-- Jenkins CI pipeline for building and pushing Docker images
+- Image sharing through Cloudinary
+- Persistent message storage in MongoDB
+- Dockerized frontend, backend, and database
+- Jenkins CI/CD pipeline with Docker Hub image publishing
+- Automated EC2 deployment using SSH
 
 ## Tech Stack
 
-### Frontend
-
-- React
-- Vite
-- React Router
-- Axios
-- Socket.IO Client
-- Tailwind CSS
-
-### Backend
-
-- Node.js
-- Express
-- Socket.IO
-- MongoDB
-- Mongoose
-- JWT
-- Cloudinary
-- bcryptjs
-
-### DevOps
-
-- Docker
-- Docker Compose
-- Nginx for serving the frontend and proxying API traffic
-- Jenkins Declarative Pipeline
-- Docker Hub image publishing
+| Layer | Technology |
+| --- | --- |
+| Frontend | React, Vite, Axios, Socket.IO Client, Tailwind CSS |
+| Backend | Node.js, Express, Socket.IO, JWT, bcryptjs |
+| Database | MongoDB, Mongoose |
+| Media Upload | Cloudinary |
+| Web Server | Nginx |
+| Containerization | Docker, Docker Compose |
+| CI/CD | Jenkins Declarative Pipeline |
+| Registry | Docker Hub |
+| Deployment | AWS EC2 |
 
 ## Project Structure
 
@@ -65,9 +64,9 @@ chat-app/
 └── README.md
 ```
 
-## Environment Variables
+## Local Environment Variables
 
-Create or update `server/.env`:
+Create `server/.env` for local development:
 
 ```env
 PORT=5000
@@ -78,29 +77,29 @@ CLOUDINARY_API_KEY=your_cloudinary_api_key
 CLOUDINARY_API_SECRET=your_cloudinary_api_secret
 ```
 
-When running with Docker Compose, the backend uses `env_file` to load `server/.env`. The Compose file also overrides `MONGODB_URI` so the backend connects to the MongoDB container using the internal service name `mongodb`.
+Do not commit `.env` files. They are ignored by Git.
 
-## Run With Docker Compose
+## Run Locally With Docker Compose
 
-Make sure Docker Desktop is running, then run from the project root:
+From the project root:
 
 ```bash
 docker compose up --build
 ```
 
-Run in detached mode:
+Run in background:
 
 ```bash
 docker compose up --build -d
 ```
 
-Open the app:
+Open the frontend:
 
 ```text
 http://localhost:5173
 ```
 
-Backend status endpoint:
+Backend health check:
 
 ```text
 http://localhost:5000/api/status
@@ -112,7 +111,7 @@ Stop containers:
 docker compose down
 ```
 
-Rebuild from scratch:
+Rebuild without cache:
 
 ```bash
 docker compose build --no-cache
@@ -125,182 +124,126 @@ View logs:
 docker compose logs -f
 ```
 
-## Docker Services
+## Docker Architecture
 
-### MongoDB
+Docker Compose runs three services:
 
-The `mongodb` service runs MongoDB 7 and stores data in a named Docker volume:
+| Service | Container | Port |
+| --- | --- | --- |
+| Frontend | `chat-app-frontend` | `5173:5173` |
+| Backend | `chat-app-backend` | `5000:5000` |
+| MongoDB | `chat-app-mongodb` | `27018:27017` |
 
-```text
-mongodb_data
-```
-
-The database is exposed to the host on port `27018`, but containers communicate internally through:
-
-```text
-mongodb:27017
-```
-
-### Backend
-
-The backend service builds from `server/Dockerfile`, runs the Express server on port `5000`, and connects to MongoDB using:
+The backend connects to MongoDB inside Docker using:
 
 ```text
 mongodb://mongodb:27017/chat-app
 ```
 
-Do not use `localhost` for MongoDB inside Docker containers. Inside a container, `localhost` means the same container, not another service.
+Inside Docker, never use `localhost` to connect from one container to another. `localhost` means the current container only. Docker Compose creates an internal network where services communicate using service names such as `mongodb` and `backend`.
 
-### Frontend
+## Frontend Container
 
-The frontend service builds the Vite app and serves the production build with Nginx.
+The frontend Dockerfile uses a multi-stage build:
 
-Nginx also proxies:
+1. Node builds the Vite React app.
+2. Nginx serves the production build.
 
-- `/api` requests to the backend container
-- `/socket.io` traffic to the backend container
+Nginx listens on port `5173` and proxies:
 
-This allows the browser to use one frontend URL while Docker handles internal routing.
+- `/api` to the backend container
+- `/socket.io` to the backend container
 
-## Why Docker Compose Is Used
+This keeps frontend, API, and Socket.IO traffic working under one browser origin.
 
-This application needs multiple services to run together:
+## Backend Container
 
-- React frontend
-- Express backend
-- MongoDB database
+The backend container:
 
-Docker Compose starts all services with one command, creates a shared internal network, and allows containers to communicate by service name.
+- runs Node.js in production mode
+- exposes port `5000`
+- loads secrets through environment variables
+- connects to MongoDB through the Docker network
 
-Example:
+## API Routes
 
-```text
-backend -> mongodb:27017
-frontend nginx -> backend:5000
-```
-
-## env_file vs environment
-
-`env_file` loads variables from a file:
-
-```yaml
-env_file:
-  - ./server/.env
-```
-
-`environment` defines or overrides variables directly in `docker-compose.yml`:
-
-```yaml
-environment:
-  MONGODB_URI: mongodb://mongodb:27017/chat-app
-```
-
-In this project, `env_file` is used for application secrets and `environment` is used for Docker-specific runtime values.
-
-## Local Development Without Docker
-
-Start MongoDB locally or with Docker, then run:
-
-```bash
-cd server
-npm install
-npm run dev
-```
-
-In another terminal:
-
-```bash
-cd client
-npm install
-npm run dev
-```
-
-Frontend:
+### Auth Routes
 
 ```text
-http://localhost:5173
+POST /api/auth/signup
+POST /api/auth/login
+GET  /api/auth/check
+PUT  /api/auth/update-profile
 ```
 
-Backend:
+### Message Routes
 
 ```text
-http://localhost:5000
+GET  /api/messages/users
+GET  /api/messages/:id
+POST /api/messages/send/:id
+PUT  /api/messages/mark/:id
 ```
 
-## API Endpoints
+## Jenkins CI/CD Pipeline
 
-### Authentication
+The project includes a production-style Jenkins Declarative Pipeline.
 
-- `POST /api/auth/signup`
-- `POST /api/auth/login`
-- `GET /api/auth/check`
-- `PUT /api/auth/update-profile`
+Pipeline flow:
 
-### Messages
+```text
+GitHub
+  -> Jenkins Agent
+  -> Build Docker Images
+  -> Push Images to Docker Hub
+  -> SSH into EC2
+  -> Pull latest images
+  -> Run MongoDB, backend, and frontend containers
+```
 
-- `GET /api/messages/users`
-- `GET /api/messages/:id`
-- `POST /api/messages/send/:id`
-- `PUT /api/messages/mark/:id`
+## Jenkins Stages
 
-## Jenkins CI Pipeline
+The Jenkinsfile contains these stages:
 
-This repository includes a `Jenkinsfile` for a beginner-friendly production-style CI pipeline.
+1. Clone Repository
+2. Build Client Image
+3. Build Server Image
+4. Docker Login
+5. Push Client Image
+6. Push Server Image
+7. Deploy Application
+8. Cleanup Docker
 
-The pipeline:
+## Docker Images
 
-1. Runs on a Jenkins agent labeled `dev`
-2. Clones the GitHub repository
-3. Builds the frontend Docker image
-4. Builds the backend Docker image
-5. Logs in to Docker Hub using Jenkins credentials
-6. Pushes both images to Docker Hub
-7. SSHs into the EC2 deployment server
-8. Starts MongoDB on EC2 if it is not already running
-9. Replaces the old frontend and backend containers with the latest images
-
-Images pushed:
+Images pushed to Docker Hub:
 
 ```text
 tanmayanand24/chat-client:latest
 tanmayanand24/chat-server:latest
 ```
 
-Containers deployed on EC2:
+## EC2 Deployment Containers
 
-```text
-mongodb
-chat-server
-chat-client
-```
+The deployment stage runs these containers on EC2:
 
-MongoDB data is persisted in this Docker volume on EC2:
+| Container | Image | Port |
+| --- | --- | --- |
+| `mongodb` | `mongo:7` | internal only |
+| `chat-server` | `tanmayanand24/chat-server:latest` | `5000:5000` |
+| `chat-client` | `tanmayanand24/chat-client:latest` | `5173:5173` |
+
+MongoDB data is stored in a persistent Docker volume:
 
 ```text
 chat-app-mongodb-data
 ```
 
-## Jenkins Prerequisites
+This means deployments can replace the backend and frontend without deleting MongoDB data.
 
-Before running the pipeline, configure:
+## EC2 Environment File
 
-- Jenkins agent with label `dev`
-- Docker installed on the Jenkins agent
-- Jenkins agent user allowed to run Docker without `sudo`
-- SSH access from Jenkins to the EC2 deployment server
-- Docker Hub credential in Jenkins:
-  - Credential type: Username with password
-  - Credential ID: `dockerhub`
-  - Username: Docker Hub username
-  - Password: Docker Hub access token or password
-- SSH credential in Jenkins:
-  - Credential ID: `agent-ssh`
-  - Private key for the EC2 deployment user
-- GitHub repository URL inside `Jenkinsfile`
-- Docker Hub username inside `Jenkinsfile`
-- EC2 public IP inside `Jenkinsfile`
-
-Create this backend environment file on EC2:
+Create this file on the EC2 deployment server:
 
 ```bash
 sudo mkdir -p /opt/chat-app
@@ -316,69 +259,131 @@ CLOUDINARY_API_KEY=your_cloudinary_api_key
 CLOUDINARY_API_SECRET=your_cloudinary_api_secret
 ```
 
-The Jenkins deployment command sets this MongoDB URI automatically for the backend container:
+The Jenkins deployment stage injects the MongoDB URI automatically:
 
 ```text
 MONGODB_URI=mongodb://mongodb:27017/chat-app
 ```
 
-The deployment stage also waits for MongoDB to respond before starting the backend. This prevents Mongoose errors such as:
+So do not use `127.0.0.1` or `localhost` for MongoDB in the cloud backend container.
+
+## Jenkins Credentials
+
+Create these credentials in Jenkins:
+
+### Docker Hub
 
 ```text
-Operation `users.findOne()` buffering timed out after 10000ms
+Credential ID: dockerhub
+Type: Username with password
+Username: Docker Hub username
+Password: Docker Hub access token or password
 ```
 
-## How The Jenkins Pipeline Works
+### EC2 SSH
 
-The Jenkins Master schedules the job, but the actual work runs on the Jenkins agent because the pipeline uses:
-
-```groovy
-agent {
-    label 'dev'
-}
+```text
+Credential ID: agent-ssh
+Type: SSH username with private key
+Username: ubuntu
+Private Key: EC2 private key
 ```
 
-Docker Hub credentials are injected securely with:
+## Jenkins Agent Requirements
 
-```groovy
-withCredentials([usernamePassword(credentialsId: 'dockerhub', ...)])
+The pipeline runs on an agent labeled:
+
+```text
+dev
 ```
 
-The pipeline builds and pushes:
+The Jenkins agent must have:
+
+- Docker installed
+- permission to run Docker without `sudo`
+- SSH access to the EC2 deployment server
+- internet access to pull and push Docker images
+
+## AWS Security Group Ports
+
+Open these inbound ports on the EC2 security group:
+
+| Port | Purpose |
+| --- | --- |
+| 22 | SSH from Jenkins |
+| 5000 | Backend API |
+| 5173 | Frontend app |
+
+MongoDB does not need to be exposed publicly because backend and MongoDB communicate inside the Docker network.
+
+## CI vs CD
+
+CI means Continuous Integration. In this project, CI:
+
+- clones the repository
+- builds frontend and backend Docker images
+- pushes images to Docker Hub
+
+CD means Continuous Deployment. In this project, CD:
+
+- SSHs into EC2
+- pulls the latest Docker images
+- starts MongoDB if needed
+- replaces old frontend and backend containers
+- runs the latest application version
+
+## Useful EC2 Docker Commands
+
+Check running containers:
 
 ```bash
-docker build -t tanmayanand24/chat-client:latest ./client
-docker build -t tanmayanand24/chat-server:latest ./server
-docker push tanmayanand24/chat-client:latest
-docker push tanmayanand24/chat-server:latest
+docker ps
 ```
 
-After the push, the deployment stage connects to EC2 with SSH, pulls the latest images, starts MongoDB if needed, and recreates the app containers.
-
-## Common Docker Issues
-
-### Docker daemon is not running
-
-Start Docker Desktop, wait until the engine is running, then run:
+View backend logs:
 
 ```bash
-docker compose up --build
+docker logs chat-server
 ```
 
-### Port already in use
+View frontend logs:
 
-Change the host port in `docker-compose.yml`.
-
-Example:
-
-```yaml
-ports:
-  - "5174:80"
+```bash
+docker logs chat-client
 ```
 
-### Backend cannot connect to MongoDB
+View MongoDB logs:
 
-Use this inside Docker:
+```bash
+docker logs mongodb
+```
+
+Check Docker network:
+
+```bash
+docker network inspect chat-app-network
+```
+
+Check MongoDB volume:
+
+```bash
+docker volume ls
+```
+
+## Common Issues And Fixes
+
+### Operation `users.findOne()` buffering timed out
+
+The backend cannot connect to MongoDB.
+
+Check that MongoDB is running:
+
+```bash
+docker ps
+docker logs mongodb
+```
+
+Make sure backend uses:
 
 ```text
 mongodb://mongodb:27017/chat-app
@@ -387,34 +392,65 @@ mongodb://mongodb:27017/chat-app
 Do not use:
 
 ```text
-mongodb://localhost:27017/chat-app
+mongodb://127.0.0.1:27017
 ```
 
-On EC2, make sure the `mongodb` container is running:
+### Request failed with status code 401
 
-```bash
-docker ps
-docker logs mongodb
+This usually means the frontend has no valid JWT token or an old token is stored in browser localStorage.
+
+Clear browser localStorage and log in again:
+
+```js
+localStorage.removeItem("token")
 ```
 
-### Socket.IO connection fails
+### Docker permission denied in Jenkins
 
-Check that Nginx is proxying `/socket.io/` and that the backend container is running:
+Add the Jenkins user to the Docker group:
 
 ```bash
-docker compose logs backend
-docker compose logs frontend
+sudo usermod -aG docker jenkins
+sudo systemctl restart jenkins
+```
+
+Then reconnect the Jenkins agent or restart the session.
+
+### Port already in use
+
+Check what is using the port:
+
+```bash
+sudo lsof -i :5173
+sudo lsof -i :5000
+```
+
+Stop the old container if needed:
+
+```bash
+docker stop chat-client chat-server || true
+docker rm chat-client chat-server || true
 ```
 
 ### Cloudinary upload fails
 
-Check the Cloudinary values in `server/.env`.
+Check `/opt/chat-app/server.env` on EC2 or `server/.env` locally. Make sure Cloudinary credentials are correct.
 
-## Production Notes
+## Security Notes
 
-- Frontend is served by Nginx instead of Vite dev server.
-- Backend runs with `NODE_ENV=production`.
-- MongoDB data is persisted in a Docker volume.
-- Backend container runs as a non-root user.
-- Docker build contexts ignore `node_modules` and generated files.
-- Jenkins uses Docker Hub credentials securely instead of hardcoding passwords.
+- Never commit `.env` files.
+- Use Docker Hub access tokens instead of account passwords.
+- Rotate secrets if they are accidentally exposed.
+- Keep MongoDB private inside the Docker network.
+- Restrict SSH access to trusted IP addresses.
+
+## Author
+
+GitHub: [tanmayanand840](https://github.com/tanmayanand840)
+
+Docker Hub images:
+
+```text
+tanmayanand24/chat-client
+tanmayanand24/chat-server
+```
